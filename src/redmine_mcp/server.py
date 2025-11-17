@@ -68,14 +68,9 @@ async def list_projects() -> dict:
         Dictionary containing the list of projects with their details
         (id, name, identifier, description, status, etc.)
     """
-    try:
-        client = get_redmine_client()
-        response = await client.get("/projects.json")
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    response = await client.get("/projects.json")
+    return response
 
 
 @mcp.tool()
@@ -89,14 +84,9 @@ async def get_project(project_id: int) -> dict:
         Dictionary containing detailed project information including
         trackers, issue categories, and other metadata
     """
-    try:
-        client = get_redmine_client()
-        response = await client.get(f"/projects/{project_id}.json")
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    response = await client.get(f"/projects/{project_id}.json")
+    return response
 
 
 @mcp.tool()
@@ -110,16 +100,11 @@ async def get_issue(issue_id: int) -> dict:
         Dictionary containing detailed issue information including
         journals (comments), attachments, and relations
     """
-    try:
-        client = get_redmine_client()
-        # Include associated data: journals, children, attachments, relations
-        params = {"include": "journals,children,attachments,relations"}
-        response = await client.get(f"/issues/{issue_id}.json", params=params)
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    # Include associated data: journals, children, attachments, relations
+    params = {"include": "journals,children,attachments,relations"}
+    response = await client.get(f"/issues/{issue_id}.json", params=params)
+    return response
 
 
 # Issue Operations
@@ -148,32 +133,27 @@ async def list_issues(
     Returns:
         Dictionary containing list of issues, total count, and pagination info
     """
-    try:
-        client = get_redmine_client()
+    client = get_redmine_client()
 
-        # Build query parameters
-        params = {
-            "limit": min(limit, 100),  # Cap at 100
-            "offset": offset,
-            "status_id": status_id,
-        }
+    # Build query parameters
+    params = {
+        "limit": min(limit, 100),  # Cap at 100
+        "offset": offset,
+        "status_id": status_id,
+    }
 
-        # Add optional filters
-        if project_id is not None:
-            params["project_id"] = project_id
-        if tracker_id is not None:
-            params["tracker_id"] = tracker_id
-        if assigned_to_id is not None:
-            params["assigned_to_id"] = assigned_to_id
-        if priority_id is not None:
-            params["priority_id"] = priority_id
+    # Add optional filters
+    if project_id is not None:
+        params["project_id"] = project_id
+    if tracker_id is not None:
+        params["tracker_id"] = tracker_id
+    if assigned_to_id is not None:
+        params["assigned_to_id"] = assigned_to_id
+    if priority_id is not None:
+        params["priority_id"] = priority_id
 
-        response = await client.get("/issues.json", params=params)
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    response = await client.get("/issues.json", params=params)
+    return response
 
 
 @mcp.tool()
@@ -206,42 +186,37 @@ async def create_issue(
     Returns:
         Dictionary containing the created issue information including its ID
     """
-    try:
-        client = get_redmine_client()
+    client = get_redmine_client()
 
-        # Build issue data
-        issue_data = {
-            "project_id": project_id,
-            "subject": subject,
-        }
+    # Build issue data
+    issue_data = {
+        "project_id": project_id,
+        "subject": subject,
+    }
 
-        # Add optional fields
-        if description:
-            issue_data["description"] = description
-        if tracker_id is not None:
-            issue_data["tracker_id"] = tracker_id
-        if status_id is not None:
-            issue_data["status_id"] = status_id
-        if priority_id is not None:
-            issue_data["priority_id"] = priority_id
-        if assigned_to_id is not None:
-            issue_data["assigned_to_id"] = assigned_to_id
-        if parent_issue_id is not None:
-            issue_data["parent_issue_id"] = parent_issue_id
-        if start_date is not None:
-            issue_data["start_date"] = start_date
-        if due_date is not None:
-            issue_data["due_date"] = due_date
+    # Add optional fields
+    if description:
+        issue_data["description"] = description
+    if tracker_id is not None:
+        issue_data["tracker_id"] = tracker_id
+    if status_id is not None:
+        issue_data["status_id"] = status_id
+    if priority_id is not None:
+        issue_data["priority_id"] = priority_id
+    if assigned_to_id is not None:
+        issue_data["assigned_to_id"] = assigned_to_id
+    if parent_issue_id is not None:
+        issue_data["parent_issue_id"] = parent_issue_id
+    if start_date is not None:
+        issue_data["start_date"] = start_date
+    if due_date is not None:
+        issue_data["due_date"] = due_date
 
-        # Wrap in "issue" key as required by Redmine API
-        request_data = {"issue": issue_data}
+    # Wrap in "issue" key as required by Redmine API
+    request_data = {"issue": issue_data}
 
-        response = await client.post("/issues.json", json_data=request_data)
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    response = await client.post("/issues.json", json_data=request_data)
+    return response
 
 
 @mcp.tool()
@@ -273,53 +248,48 @@ async def update_issue(
         Dictionary containing the updated issue information or empty dict on success
         (Redmine API returns 200 with no content on successful PUT)
     """
-    try:
-        client = get_redmine_client()
+    client = get_redmine_client()
 
-        # Build issue update data
-        issue_data = {}
+    # Build issue update data
+    issue_data = {}
 
-        # Add fields to update
-        if subject is not None:
-            issue_data["subject"] = subject
-        if description is not None:
-            issue_data["description"] = description
-        if tracker_id is not None:
-            issue_data["tracker_id"] = tracker_id
-        if status_id is not None:
-            issue_data["status_id"] = status_id
-        if priority_id is not None:
-            issue_data["priority_id"] = priority_id
-        if assigned_to_id is not None:
-            issue_data["assigned_to_id"] = assigned_to_id
-        if notes is not None:
-            issue_data["notes"] = notes
-        if done_ratio is not None:
-            # Validate range
-            if not 0 <= done_ratio <= 100:
-                return {"error": "done_ratio must be between 0 and 100"}
-            issue_data["done_ratio"] = done_ratio
+    # Add fields to update
+    if subject is not None:
+        issue_data["subject"] = subject
+    if description is not None:
+        issue_data["description"] = description
+    if tracker_id is not None:
+        issue_data["tracker_id"] = tracker_id
+    if status_id is not None:
+        issue_data["status_id"] = status_id
+    if priority_id is not None:
+        issue_data["priority_id"] = priority_id
+    if assigned_to_id is not None:
+        issue_data["assigned_to_id"] = assigned_to_id
+    if notes is not None:
+        issue_data["notes"] = notes
+    if done_ratio is not None:
+        # Validate range
+        if not 0 <= done_ratio <= 100:
+            raise ValueError("done_ratio must be between 0 and 100")
+        issue_data["done_ratio"] = done_ratio
 
-        # Check if at least one field is being updated
-        if not issue_data:
-            return {"error": "At least one field must be specified for update"}
+    # Check if at least one field is being updated
+    if not issue_data:
+        raise ValueError("At least one field must be specified for update")
 
-        # Wrap in "issue" key as required by Redmine API
-        request_data = {"issue": issue_data}
+    # Wrap in "issue" key as required by Redmine API
+    request_data = {"issue": issue_data}
 
-        response = await client.put(f"/issues/{issue_id}.json", json_data=request_data)
+    response = await client.put(f"/issues/{issue_id}.json", json_data=request_data)
 
-        # Redmine returns empty response on successful update, so fetch the updated issue
-        if not response:
-            # Fetch updated issue to return
-            updated_issue = await client.get(f"/issues/{issue_id}.json")
-            return updated_issue
+    # Redmine returns empty response on successful update, so fetch the updated issue
+    if not response:
+        # Fetch updated issue to return
+        updated_issue = await client.get(f"/issues/{issue_id}.json")
+        return updated_issue
 
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    return response
 
 
 # Metadata Operations
@@ -334,14 +304,9 @@ async def list_trackers() -> dict:
     Returns:
         Dictionary containing list of trackers with id, name, and description
     """
-    try:
-        client = get_redmine_client()
-        response = await client.get("/trackers.json")
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    response = await client.get("/trackers.json")
+    return response
 
 
 @mcp.tool()
@@ -354,14 +319,9 @@ async def list_issue_statuses() -> dict:
     Returns:
         Dictionary containing list of statuses with id, name, and is_closed flag
     """
-    try:
-        client = get_redmine_client()
-        response = await client.get("/issue_statuses.json")
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    response = await client.get("/issue_statuses.json")
+    return response
 
 
 @mcp.tool()
@@ -374,14 +334,9 @@ async def list_priorities() -> dict:
     Returns:
         Dictionary containing list of priorities with id, name, and is_default flag
     """
-    try:
-        client = get_redmine_client()
-        response = await client.get("/enumerations/issue_priorities.json")
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    response = await client.get("/enumerations/issue_priorities.json")
+    return response
 
 
 @mcp.tool()
@@ -397,15 +352,10 @@ async def list_users(status: int = 1, limit: int = 100) -> dict:
     Returns:
         Dictionary containing list of users with id, login, firstname, lastname, and mail
     """
-    try:
-        client = get_redmine_client()
-        params = {"status": status, "limit": limit}
-        response = await client.get("/users.json", params=params)
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    params = {"status": status, "limit": limit}
+    response = await client.get("/users.json", params=params)
+    return response
 
 
 @mcp.tool()
@@ -420,14 +370,9 @@ async def get_project_members(project_id: int) -> dict:
     Returns:
         Dictionary containing list of project members with user and role information
     """
-    try:
-        client = get_redmine_client()
-        response = await client.get(f"/projects/{project_id}/memberships.json")
-        return response
-    except RedmineError as e:
-        return {"error": e.message, "status_code": e.status_code}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+    client = get_redmine_client()
+    response = await client.get(f"/projects/{project_id}/memberships.json")
+    return response
 
 
 def main():
