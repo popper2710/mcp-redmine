@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that enables Claude Code to interact with 
 
 ## Features
 
-This server provides 11 tools across three categories:
+This server provides 13 tools across three categories:
 
 **Project Operations**
 - List and retrieve project details
@@ -13,6 +13,7 @@ This server provides 11 tools across three categories:
 **Issue Management**
 - Search, create, and update issues (tickets)
 - Add comments and track progress
+- Create and delete relations between issues (dependencies, blockers, duplicates, etc.)
 - Support for filtering by project, tracker, status, assignee, and priority
 
 **Metadata**
@@ -92,6 +93,8 @@ Once configured, use Claude Code to interact with Redmine naturally:
 "Show me all open issues in project 5"
 "Create a bug in project 3 titled 'Login page error'"
 "Update issue 123 to 'In Progress' and add a comment"
+"Make issue 100 block issue 101"
+"Show me the relations for issue 50"
 "Who are the members of project 2?"
 "What trackers are available?"
 ```

@@ -292,6 +292,106 @@ async def update_issue(
     return response
 
 
+# Issue Relations
+
+
+@mcp.tool()
+async def create_issue_relation(
+    issue_id: int,
+    issue_to_id: int,
+    relation_type: str,
+    delay: int | None = None,
+) -> dict:
+    """Create a relation between two issues.
+
+    Args:
+        issue_id: Source issue ID (required)
+        issue_to_id: Target issue ID to relate to (required)
+        relation_type: Type of relation (required). Valid values:
+            - "relates" - Related to
+            - "duplicates" - Duplicates (source duplicates target)
+            - "duplicated" - Duplicated by (source is duplicated by target)
+            - "blocks" - Blocks (source blocks target)
+            - "blocked" - Blocked by (source is blocked by target)
+            - "precedes" - Precedes (source must finish before target)
+            - "follows" - Follows (source starts after target finishes)
+            - "copied_to" - Copied to
+            - "copied_from" - Copied from
+        delay: Optional delay in days (only for "precedes" or "follows" relations)
+
+    Returns:
+        Dictionary containing the created relation information including relation ID
+
+    Note:
+        Some relation types automatically create their inverse:
+        - "duplicates" creates "duplicated" on the other side
+        - "blocks" creates "blocked" on the other side
+        - "precedes" creates "follows" on the other side
+    """
+    client = get_redmine_client()
+
+    # Valid relation types
+    valid_types = [
+        "relates",
+        "duplicates",
+        "duplicated",
+        "blocks",
+        "blocked",
+        "precedes",
+        "follows",
+        "copied_to",
+        "copied_from",
+    ]
+
+    if relation_type not in valid_types:
+        raise ValueError(
+            f"Invalid relation_type '{relation_type}'. "
+            f"Valid values are: {', '.join(valid_types)}"
+        )
+
+    # Build relation data
+    relation_data = {
+        "issue_to_id": issue_to_id,
+        "relation_type": relation_type,
+    }
+
+    # Add delay if specified (only valid for precedes/follows)
+    if delay is not None:
+        if relation_type not in ["precedes", "follows"]:
+            raise ValueError(
+                f"delay parameter is only valid for 'precedes' or 'follows' relations, "
+                f"not for '{relation_type}'"
+            )
+        relation_data["delay"] = delay
+
+    # Wrap in "relation" key as required by Redmine API
+    request_data = {"relation": relation_data}
+
+    response = await client.post(
+        f"/issues/{issue_id}/relations.json", json_data=request_data
+    )
+    return response
+
+
+@mcp.tool()
+async def delete_issue_relation(relation_id: int) -> dict:
+    """Delete a relation between issues.
+
+    Args:
+        relation_id: The ID of the relation to delete (required)
+
+    Returns:
+        Empty dictionary on success (Redmine returns 204 No Content)
+
+    Note:
+        To get relation IDs, use get_issue() with the issue ID and look at
+        the "relations" array in the response. Each relation has an "id" field.
+    """
+    client = get_redmine_client()
+    response = await client.delete(f"/relations/{relation_id}.json")
+    return response
+
+
 # Metadata Operations
 
 @mcp.tool()
