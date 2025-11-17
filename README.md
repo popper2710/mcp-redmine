@@ -46,7 +46,7 @@ Use the `claude mcp add` command to easily configure the server:
 claude mcp add --transport stdio redmine \
   --env REDMINE_URL=https://redmine.example.com \
   --env REDMINE_API_KEY=your_api_key_here \
-  -- uv --directory /absolute/path/to/mcp-redmine run redmine-mcp
+  -- uv --directory /absolute/path/to/mcp-redmine run mcp-redmine
 ```
 
 **Important:** Replace the following:
@@ -69,7 +69,7 @@ Alternatively, add this to your Claude Code MCP settings file (`~/.config/claude
         "--directory",
         "/absolute/path/to/mcp-redmine",
         "run",
-        "redmine-mcp"
+        "mcp-redmine"
       ],
       "env": {
         "REDMINE_URL": "https://redmine.example.com",

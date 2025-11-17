@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "redmine": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/mcp-redmine",
+        "run",
+        "mcp-redmine"
+      ],
+      "env": {
+        "REDMINE_URL": "https://redmine.example.com",
+        "REDMINE_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
