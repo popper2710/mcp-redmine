@@ -74,11 +74,11 @@ async def list_projects() -> dict:
 
 
 @mcp.tool()
-async def get_project(project_id: int) -> dict:
+async def get_project(project_id: int | str) -> dict:
     """Get detailed information about a specific project.
 
     Args:
-        project_id: The ID of the project to retrieve
+        project_id: The ID (numeric) or identifier (string) of the project to retrieve
 
     Returns:
         Dictionary containing detailed project information including
@@ -87,6 +87,42 @@ async def get_project(project_id: int) -> dict:
     client = get_redmine_client()
     response = await client.get(f"/projects/{project_id}.json")
     return response
+
+
+@mcp.tool()
+async def search_projects(query: str) -> dict:
+    """Search projects by name or identifier using partial text matching.
+
+    This is useful when you know part of a project name but don't know
+    the exact project ID or identifier. For example, searching for "ERP"
+    will find projects with "ERP" in their name or identifier.
+
+    Args:
+        query: Search string for partial matching against project name or identifier
+
+    Returns:
+        Dictionary containing matching projects with their id, identifier, name, and description
+    """
+    client = get_redmine_client()
+
+    # Get all projects
+    all_projects_response = await client.get("/projects.json")
+    all_projects = all_projects_response.get("projects", [])
+
+    # Filter projects by query (case-insensitive partial match)
+    query_lower = query.lower()
+    matches = [
+        p for p in all_projects
+        if (query_lower in p.get("name", "").lower() or
+            query_lower in p.get("identifier", "").lower() or
+            query_lower in p.get("description", "").lower())
+    ]
+
+    return {
+        "projects": matches,
+        "total_count": len(matches),
+        "query": query
+    }
 
 
 @mcp.tool()
@@ -111,7 +147,7 @@ async def get_issue(issue_id: int) -> dict:
 
 @mcp.tool()
 async def list_issues(
-    project_id: int | None = None,
+    project_id: int | str | None = None,
     tracker_id: int | None = None,
     status_id: str = "*",
     assigned_to_id: int | None = None,
@@ -122,7 +158,7 @@ async def list_issues(
     """Search and list issues (tickets) with various filters.
 
     Args:
-        project_id: Filter by project ID (optional)
+        project_id: Filter by project ID (numeric) or project identifier (string) (optional)
         tracker_id: Filter by tracker ID (optional)
         status_id: Filter by status - "open", "closed", or "*" for all (default: "*")
         assigned_to_id: Filter by assigned user ID (optional)
@@ -158,7 +194,7 @@ async def list_issues(
 
 @mcp.tool()
 async def create_issue(
-    project_id: int,
+    project_id: int | str,
     subject: str,
     description: str = "",
     tracker_id: int | None = None,
@@ -179,7 +215,7 @@ async def create_issue(
     """Create a new issue (ticket) in Redmine.
 
     Args:
-        project_id: Project ID (required)
+        project_id: Project ID (numeric) or project identifier (string) (required)
         subject: Issue subject/title (required)
         description: Issue description (optional)
         tracker_id: Tracker ID (optional, uses project default if not specified)
