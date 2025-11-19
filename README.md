@@ -4,17 +4,18 @@ A Model Context Protocol (MCP) server that enables Claude Code to interact with 
 
 ## Features
 
-This server provides 13 tools across three categories:
+This server provides 14 tools across three categories:
 
 **Project Operations**
-- List and retrieve project details
+- List and retrieve project details (supports both numeric IDs and string identifiers)
+- Search projects by name or identifier (partial text matching)
 - Get project members and permissions
 
 **Issue Management**
-- Search, create, and update issues (tickets)
+- Search, create, and update issues (tickets) - supports both numeric project IDs and string identifiers
 - Add comments and track progress
 - Create and delete relations between issues (dependencies, blockers, duplicates, etc.)
-- Support for filtering by project, tracker, status, assignee, and priority
+- Support for filtering by project (numeric ID or identifier), tracker, status, assignee, and priority
 
 **Metadata**
 - List trackers, statuses, priorities, and users
@@ -91,7 +92,10 @@ Once configured, use Claude Code to interact with Redmine naturally:
 
 ```
 "Show me all open issues in project 5"
+"Show me all open issues in the 'mobile-app' project"
+"Search for projects related to 'ERP'"
 "Create a bug in project 3 titled 'Login page error'"
+"Create a bug in the 'backend-api' project titled 'Login timeout'"
 "Update issue 123 to 'In Progress' and add a comment"
 "Make issue 100 block issue 101"
 "Show me the relations for issue 50"
@@ -99,7 +103,7 @@ Once configured, use Claude Code to interact with Redmine naturally:
 "What trackers are available?"
 ```
 
-Claude will automatically use the appropriate tools to fulfill your requests.
+Claude will automatically use the appropriate tools to fulfill your requests. Project references accept both numeric IDs (e.g., `5`) and string identifiers (e.g., `"mobile-app"`) for flexible integration with your workflow.
 
 ## Troubleshooting
 
@@ -122,7 +126,6 @@ Claude will automatically use the appropriate tools to fulfill your requests.
 Current version does not support:
 - Time tracking entries
 - File attachments upload
-- Custom fields
 - Wiki pages
 - Bulk operations
 
