@@ -165,9 +165,16 @@ async def create_issue(
     status_id: int | None = None,
     priority_id: int | None = None,
     assigned_to_id: int | None = None,
+    category_id: int | None = None,
+    fixed_version_id: int | None = None,
     parent_issue_id: int | None = None,
     start_date: str | None = None,
     due_date: str | None = None,
+    estimated_hours: float | None = None,
+    done_ratio: int | None = None,
+    is_private: bool | None = None,
+    watcher_user_ids: list[int] | None = None,
+    custom_fields: list[dict] | None = None,
 ) -> dict:
     """Create a new issue (ticket) in Redmine.
 
@@ -179,9 +186,16 @@ async def create_issue(
         status_id: Status ID (optional)
         priority_id: Priority ID (optional)
         assigned_to_id: Assigned user ID (optional)
+        category_id: Category ID (optional)
+        fixed_version_id: Target version ID (optional)
         parent_issue_id: Parent issue ID for subtasks (optional)
         start_date: Start date in YYYY-MM-DD format (optional)
         due_date: Due date in YYYY-MM-DD format (optional)
+        estimated_hours: Estimated hours as float (optional)
+        done_ratio: Progress percentage 0-100 (optional)
+        is_private: Whether the issue is private (optional)
+        watcher_user_ids: List of user IDs to add as watchers (optional, requires Redmine 2.3.0+)
+        custom_fields: List of custom field dictionaries with 'id' and 'value' keys (optional)
 
     Returns:
         Dictionary containing the created issue information including its ID
@@ -205,12 +219,30 @@ async def create_issue(
         issue_data["priority_id"] = priority_id
     if assigned_to_id is not None:
         issue_data["assigned_to_id"] = assigned_to_id
+    if category_id is not None:
+        issue_data["category_id"] = category_id
+    if fixed_version_id is not None:
+        issue_data["fixed_version_id"] = fixed_version_id
     if parent_issue_id is not None:
         issue_data["parent_issue_id"] = parent_issue_id
     if start_date is not None:
         issue_data["start_date"] = start_date
     if due_date is not None:
         issue_data["due_date"] = due_date
+    if estimated_hours is not None:
+        if estimated_hours < 0:
+            raise ValueError("estimated_hours must be non-negative")
+        issue_data["estimated_hours"] = estimated_hours
+    if done_ratio is not None:
+        if not 0 <= done_ratio <= 100:
+            raise ValueError("done_ratio must be between 0 and 100")
+        issue_data["done_ratio"] = done_ratio
+    if is_private is not None:
+        issue_data["is_private"] = is_private
+    if watcher_user_ids is not None:
+        issue_data["watcher_user_ids"] = watcher_user_ids
+    if custom_fields is not None:
+        issue_data["custom_fields"] = custom_fields
 
     # Wrap in "issue" key as required by Redmine API
     request_data = {"issue": issue_data}
@@ -228,8 +260,18 @@ async def update_issue(
     status_id: int | None = None,
     priority_id: int | None = None,
     assigned_to_id: int | None = None,
-    notes: str | None = None,
+    category_id: int | None = None,
+    fixed_version_id: int | None = None,
+    parent_issue_id: int | None = None,
+    start_date: str | None = None,
+    due_date: str | None = None,
+    estimated_hours: float | None = None,
     done_ratio: int | None = None,
+    is_private: bool | None = None,
+    watcher_user_ids: list[int] | None = None,
+    custom_fields: list[dict] | None = None,
+    notes: str | None = None,
+    private_notes: bool | None = None,
 ) -> dict:
     """Update an existing issue (ticket).
 
@@ -241,8 +283,18 @@ async def update_issue(
         status_id: New status ID (optional)
         priority_id: New priority ID (optional)
         assigned_to_id: New assigned user ID (optional)
-        notes: Comment to add to the issue history (optional)
+        category_id: New category ID (optional)
+        fixed_version_id: New target version ID (optional)
+        parent_issue_id: New parent issue ID (optional)
+        start_date: New start date in YYYY-MM-DD format (optional)
+        due_date: New due date in YYYY-MM-DD format (optional)
+        estimated_hours: New estimated hours as float (optional)
         done_ratio: Progress percentage 0-100 (optional)
+        is_private: Whether the issue is private (optional)
+        watcher_user_ids: List of user IDs to add as watchers (optional, requires Redmine 2.3.0+)
+        custom_fields: List of custom field dictionaries with 'id' and 'value' keys (optional)
+        notes: Comment to add to the issue history (optional)
+        private_notes: Whether the notes are private (optional)
 
     Returns:
         Dictionary containing the updated issue information or empty dict on success
@@ -266,13 +318,34 @@ async def update_issue(
         issue_data["priority_id"] = priority_id
     if assigned_to_id is not None:
         issue_data["assigned_to_id"] = assigned_to_id
-    if notes is not None:
-        issue_data["notes"] = notes
+    if category_id is not None:
+        issue_data["category_id"] = category_id
+    if fixed_version_id is not None:
+        issue_data["fixed_version_id"] = fixed_version_id
+    if parent_issue_id is not None:
+        issue_data["parent_issue_id"] = parent_issue_id
+    if start_date is not None:
+        issue_data["start_date"] = start_date
+    if due_date is not None:
+        issue_data["due_date"] = due_date
+    if estimated_hours is not None:
+        if estimated_hours < 0:
+            raise ValueError("estimated_hours must be non-negative")
+        issue_data["estimated_hours"] = estimated_hours
     if done_ratio is not None:
-        # Validate range
         if not 0 <= done_ratio <= 100:
             raise ValueError("done_ratio must be between 0 and 100")
         issue_data["done_ratio"] = done_ratio
+    if is_private is not None:
+        issue_data["is_private"] = is_private
+    if watcher_user_ids is not None:
+        issue_data["watcher_user_ids"] = watcher_user_ids
+    if custom_fields is not None:
+        issue_data["custom_fields"] = custom_fields
+    if notes is not None:
+        issue_data["notes"] = notes
+    if private_notes is not None:
+        issue_data["private_notes"] = private_notes
 
     # Check if at least one field is being updated
     if not issue_data:
