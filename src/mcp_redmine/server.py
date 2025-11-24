@@ -138,6 +138,14 @@ async def search(
     """
     client = get_redmine_client()
 
+    # Validate scope parameter
+    valid_scopes = ["all", "my_project", "subprojects"]
+    if scope not in valid_scopes:
+        raise ValueError(
+            f"Invalid scope '{scope}'. "
+            f"Valid values are: {', '.join(valid_scopes)}"
+        )
+
     # Build parameters
     params = {
         "q": q,
