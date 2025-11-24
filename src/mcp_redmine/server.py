@@ -141,7 +141,7 @@ async def search(
     # Validate scope parameter
     valid_scopes = ["all", "my_project", "subprojects"]
     if scope not in valid_scopes:
-        raise ValueError(
+        raise RedmineError(
             f"Invalid scope '{scope}'. "
             f"Valid values are: {', '.join(valid_scopes)}"
         )
