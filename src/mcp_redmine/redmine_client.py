@@ -142,3 +142,29 @@ class RedmineClient:
             JSON response
         """
         return await self._request("DELETE", endpoint)
+
+    async def aclose(self) -> None:
+        """Close the HTTP client and release resources.
+
+        This method should be called when the client is no longer needed
+        to ensure proper cleanup of HTTP connections and resources.
+        """
+        await self._http_client.aclose()
+
+    async def __aenter__(self) -> "RedmineClient":
+        """Enter the async context manager.
+
+        Returns:
+            The RedmineClient instance
+        """
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit the async context manager and close the HTTP client.
+
+        Args:
+            exc_type: Exception type if an error occurred
+            exc_val: Exception value if an error occurred
+            exc_tb: Exception traceback if an error occurred
+        """
+        await self.aclose()
