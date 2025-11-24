@@ -90,39 +90,80 @@ async def get_project(project_id: int | str) -> dict:
 
 
 @mcp.tool()
-async def search_projects(query: str) -> dict:
-    """Search projects by name or identifier using partial text matching.
-
-    This is useful when you know part of a project name but don't know
-    the exact project ID or identifier. For example, searching for "ERP"
-    will find projects with "ERP" in their name or identifier.
+async def search(
+    q: str,
+    issues: bool = False,
+    projects: bool = False,
+    wiki_pages: bool = False,
+    news: bool = False,
+    documents: bool = False,
+    changesets: bool = False,
+    messages: bool = False,
+    scope: str = "all",
+    limit: int = 25,
+    offset: int = 0,
+) -> dict:
+    """Search across Redmine resources using the Search API.
 
     Args:
-        query: Search string for partial matching against project name or identifier
+        q: Search query string (required)
+        issues: Include issues in search results
+        projects: Include projects in search results
+        wiki_pages: Include wiki pages in search results
+        news: Include news in search results
+        documents: Include documents in search results
+        changesets: Include changesets in search results
+        messages: Include messages in search results
+        scope: Search scope - 'all', 'my_project', or 'subprojects' (default: 'all')
+        limit: Maximum number of results (default: 25, max: 100)
+        offset: Pagination offset (default: 0)
 
     Returns:
-        Dictionary containing matching projects with their id, identifier, name, and description
+        Dictionary containing:
+        - results: List with id, title, type, url, description, datetime
+        - total_count: Total number of results
+        - limit: Current limit value
+        - offset: Current offset value
+
+    Note:
+        Uses Redmine Search API (Redmine 3.3+, Alpha status).
+        If no resource types specified, searches all types.
+
+    Example:
+        # Search projects only
+        search(q="ERP", projects=True)
+
+        # Search issues and projects
+        search(q="bug", issues=True, projects=True)
     """
     client = get_redmine_client()
 
-    # Get all projects
-    all_projects_response = await client.get("/projects.json")
-    all_projects = all_projects_response.get("projects", [])
-
-    # Filter projects by query (case-insensitive partial match)
-    query_lower = query.lower()
-    matches = [
-        p for p in all_projects
-        if (query_lower in p.get("name", "").lower() or
-            query_lower in p.get("identifier", "").lower() or
-            query_lower in p.get("description", "").lower())
-    ]
-
-    return {
-        "projects": matches,
-        "total_count": len(matches),
-        "query": query
+    # Build parameters
+    params = {
+        "q": q,
+        "scope": scope,
+        "limit": min(limit, 100),
+        "offset": offset,
     }
+
+    # Add resource type filters
+    if issues:
+        params["issues"] = "1"
+    if projects:
+        params["projects"] = "1"
+    if wiki_pages:
+        params["wiki_pages"] = "1"
+    if news:
+        params["news"] = "1"
+    if documents:
+        params["documents"] = "1"
+    if changesets:
+        params["changesets"] = "1"
+    if messages:
+        params["messages"] = "1"
+
+    response = await client.get("/search.json", params=params)
+    return response
 
 
 @mcp.tool()
