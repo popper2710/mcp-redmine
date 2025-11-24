@@ -21,6 +21,11 @@ class RedmineClient:
             "Content-Type": "application/json",
         }
         self.timeout = config.timeout
+        # Initialize persistent HTTP client for connection pooling
+        self._http_client = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers=self.headers,
+        )
 
     async def _request(
         self,
@@ -46,35 +51,33 @@ class RedmineClient:
         url = f"{self.base_url}{endpoint}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=self.headers,
-                    params=params,
-                    json=json_data,
-                )
+            response = await self._http_client.request(
+                method=method,
+                url=url,
+                params=params,
+                json=json_data,
+            )
 
-                # Handle HTTP errors
-                if response.status_code >= 400:
-                    error_msg = f"HTTP {response.status_code}: {response.text}"
-                    if response.status_code == 401:
-                        error_msg = "Authentication failed. Please check your API key."
-                    elif response.status_code == 403:
-                        error_msg = "Access forbidden. Please check your permissions."
-                    elif response.status_code == 404:
-                        error_msg = "Resource not found."
-                    elif response.status_code >= 500:
-                        error_msg = f"Redmine server error: {response.status_code}"
+            # Handle HTTP errors
+            if response.status_code >= 400:
+                error_msg = f"HTTP {response.status_code}: {response.text}"
+                if response.status_code == 401:
+                    error_msg = "Authentication failed. Please check your API key."
+                elif response.status_code == 403:
+                    error_msg = "Access forbidden. Please check your permissions."
+                elif response.status_code == 404:
+                    error_msg = "Resource not found."
+                elif response.status_code >= 500:
+                    error_msg = f"Redmine server error: {response.status_code}"
 
-                    raise RedmineError(error_msg, response.status_code)
+                raise RedmineError(error_msg, response.status_code)
 
-                # Return JSON response (handle empty responses from successful updates)
-                if response.text.strip():
-                    return response.json()
-                else:
-                    # Empty response (common for successful PUT/DELETE operations)
-                    return {}
+            # Return JSON response (handle empty responses from successful updates)
+            if response.text.strip():
+                return response.json()
+            else:
+                # Empty response (common for successful PUT/DELETE operations)
+                return {}
 
         except httpx.TimeoutException as e:
             raise RedmineError(f"Request timeout after {self.timeout} seconds") from e
