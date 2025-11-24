@@ -61,15 +61,29 @@ def get_redmine_client() -> RedmineClient:
 # Project Operations
 
 @mcp.tool()
-async def list_projects() -> dict:
-    """List all accessible Redmine projects.
+async def list_projects(
+    limit: int = 25,
+    offset: int = 0,
+) -> dict:
+    """List accessible Redmine projects.
+
+    Args:
+        limit: Maximum number of projects to return (default: 25, max: 100)
+        offset: Offset for pagination (default: 0)
 
     Returns:
-        Dictionary containing the list of projects with their details
-        (id, name, identifier, description, status, etc.)
+        Dictionary containing:
+        - projects: List of projects with their details (id, name, identifier, description, status, etc.)
+        - total_count: Total number of accessible projects
+        - limit: Current limit value
+        - offset: Current offset value
     """
     client = get_redmine_client()
-    response = await client.get("/projects.json")
+    params = {
+        "limit": min(limit, 100),  # Cap at 100
+        "offset": offset,
+    }
+    response = await client.get("/projects.json", params=params)
     return response
 
 
