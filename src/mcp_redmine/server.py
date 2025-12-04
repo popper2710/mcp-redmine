@@ -274,6 +274,7 @@ async def create_issue(
     is_private: bool | None = None,
     watcher_user_ids: list[int] | None = None,
     custom_fields: list[dict] | None = None,
+    uploads: list[dict] | None = None,
 ) -> dict:
     """Create a new issue (ticket) in Redmine.
 
@@ -295,6 +296,11 @@ async def create_issue(
         is_private: Whether the issue is private (optional)
         watcher_user_ids: List of user IDs to add as watchers (optional, requires Redmine 2.3.0+)
         custom_fields: List of custom field dictionaries with 'id' and 'value' keys (optional)
+        uploads: List of file uploads to attach. Each upload should be a dictionary with:
+            - token: Upload token from upload_attachment() (required)
+            - filename: Filename to use in Redmine (required)
+            - content_type: MIME type (optional, e.g., "application/pdf")
+            - description: File description (optional)
 
     Returns:
         Dictionary containing the created issue information including its ID
@@ -342,6 +348,8 @@ async def create_issue(
         issue_data["watcher_user_ids"] = watcher_user_ids
     if custom_fields is not None:
         issue_data["custom_fields"] = custom_fields
+    if uploads is not None:
+        issue_data["uploads"] = uploads
 
     # Wrap in "issue" key as required by Redmine API
     request_data = {"issue": issue_data}
@@ -371,6 +379,7 @@ async def update_issue(
     custom_fields: list[dict] | None = None,
     notes: str | None = None,
     private_notes: bool | None = None,
+    uploads: list[dict] | None = None,
 ) -> dict:
     """Update an existing issue (ticket).
 
@@ -394,6 +403,11 @@ async def update_issue(
         custom_fields: List of custom field dictionaries with 'id' and 'value' keys (optional)
         notes: Comment to add to the issue history (optional)
         private_notes: Whether the notes are private (optional)
+        uploads: List of file uploads to attach. Each upload should be a dictionary with:
+            - token: Upload token from upload_attachment() (required)
+            - filename: Filename to use in Redmine (required)
+            - content_type: MIME type (optional, e.g., "application/pdf")
+            - description: File description (optional)
 
     Returns:
         Dictionary containing the updated issue information or empty dict on success
@@ -445,6 +459,8 @@ async def update_issue(
         issue_data["notes"] = notes
     if private_notes is not None:
         issue_data["private_notes"] = private_notes
+    if uploads is not None:
+        issue_data["uploads"] = uploads
 
     # Check if at least one field is being updated
     if not issue_data:
@@ -562,6 +578,166 @@ async def delete_issue_relation(relation_id: int) -> dict:
     client = get_redmine_client()
     response = await client.delete(f"/relations/{relation_id}.json")
     return response
+
+
+# Attachment Operations
+
+
+@mcp.tool()
+async def get_attachment(attachment_id: int) -> dict:
+    """Get metadata about a specific attachment.
+
+    Args:
+        attachment_id: The ID of the attachment to retrieve
+
+    Returns:
+        Dictionary containing attachment metadata:
+        - id: Attachment ID
+        - filename: Original filename
+        - filesize: File size in bytes
+        - content_type: MIME type of the file
+        - description: Optional description
+        - content_url: URL to download the file
+        - author: Author information (id, name)
+        - created_on: Creation timestamp
+
+    Note:
+        To get attachment IDs, use get_issue() which includes attachments
+        in the response when they exist on the issue.
+    """
+    client = get_redmine_client()
+    response = await client.get(f"/attachments/{attachment_id}.json")
+    return response
+
+
+@mcp.tool()
+async def download_attachment(
+    attachment_id: int,
+    save_path: str,
+) -> dict:
+    """Download an attachment and save it to the specified path.
+
+    Args:
+        attachment_id: The ID of the attachment to download
+        save_path: Absolute path where the file should be saved
+
+    Returns:
+        Dictionary containing:
+        - success: True if download succeeded
+        - file_path: The path where the file was saved
+        - filename: Original filename from Redmine
+        - size: File size in bytes
+
+    Note:
+        The parent directory will be created automatically if it doesn't exist.
+    """
+    client = get_redmine_client()
+
+    # First, get attachment metadata to obtain content_url
+    attachment_response = await client.get(f"/attachments/{attachment_id}.json")
+    attachment = attachment_response.get("attachment", {})
+
+    content_url = attachment.get("content_url")
+    if not content_url:
+        raise RedmineError(
+            f"Could not get download URL for attachment {attachment_id}"
+        )
+
+    filename = attachment.get("filename", f"attachment_{attachment_id}")
+
+    # Download the file
+    file_size = await client.download_file(content_url, save_path)
+
+    return {
+        "success": True,
+        "file_path": save_path,
+        "filename": filename,
+        "size": file_size,
+    }
+
+
+@mcp.tool()
+async def upload_attachment(
+    file_path: str,
+    filename: str | None = None,
+    content_type: str | None = None,
+) -> dict:
+    """Upload a file to Redmine and get an upload token.
+
+    The returned token can be used to attach the file to an issue
+    using create_issue() or update_issue() with the 'uploads' parameter.
+
+    Args:
+        file_path: Absolute path to the file to upload
+        filename: Optional filename to use in Redmine (defaults to the file's basename)
+        content_type: Optional MIME type (for documentation purposes only,
+                     actual content-type sent to Redmine is application/octet-stream)
+
+    Returns:
+        Dictionary containing:
+        - token: Upload token to use when attaching to an issue
+        - filename: The filename that will be used
+
+    Example:
+        # Step 1: Upload the file
+        result = upload_attachment("/path/to/report.pdf")
+        token = result["token"]
+
+        # Step 2: Attach to an issue
+        update_issue(
+            issue_id=123,
+            uploads=[{
+                "token": token,
+                "filename": "report.pdf",
+                "content_type": "application/pdf",
+                "description": "Monthly report"
+            }]
+        )
+    """
+    client = get_redmine_client()
+
+    # Upload file and get token
+    response = await client.upload_file(file_path, filename)
+
+    upload_data = response.get("upload", {})
+    token = upload_data.get("token")
+
+    if not token:
+        raise RedmineError("Failed to get upload token from Redmine")
+
+    # Determine the filename that was used
+    from pathlib import Path
+    actual_filename = filename or Path(file_path).name
+
+    return {
+        "token": token,
+        "filename": actual_filename,
+    }
+
+
+@mcp.tool()
+async def delete_attachment(attachment_id: int) -> dict:
+    """Delete an attachment from Redmine.
+
+    Args:
+        attachment_id: The ID of the attachment to delete
+
+    Returns:
+        Dictionary containing:
+        - success: True if deletion succeeded
+        - message: Confirmation message
+
+    Note:
+        This permanently removes the attachment from the issue.
+        The user must have permission to delete attachments.
+    """
+    client = get_redmine_client()
+    await client.delete(f"/attachments/{attachment_id}.json")
+
+    return {
+        "success": True,
+        "message": f"Attachment {attachment_id} deleted successfully",
+    }
 
 
 # Metadata Operations
