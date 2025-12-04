@@ -647,6 +647,166 @@ async def get_project_members(project_id: int) -> dict:
     return response
 
 
+# Wiki Operations
+
+
+@mcp.tool()
+async def list_wiki_pages(
+    project_id: int | str,
+) -> dict:
+    """List all wiki pages in a project.
+
+    Args:
+        project_id: Project ID (numeric) or project identifier (string) (required)
+
+    Returns:
+        Dictionary containing:
+        - wiki_pages: List of wiki pages with title, version, created_on, updated_on
+    """
+    client = get_redmine_client()
+    response = await client.get(f"/projects/{project_id}/wiki/index.json")
+    return response
+
+
+@mcp.tool()
+async def get_wiki_page(
+    project_id: int | str,
+    title: str,
+    include_attachments: bool = False,
+) -> dict:
+    """Get a specific wiki page content.
+
+    Args:
+        project_id: Project ID (numeric) or project identifier (string) (required)
+        title: Wiki page title (required)
+        include_attachments: Include attachment information in response (default: False)
+
+    Returns:
+        Dictionary containing:
+        - wiki_page: Page details including title, text, version, author, created_on, updated_on
+        - attachments: List of attachments (if include_attachments is True)
+    """
+    client = get_redmine_client()
+    params = {}
+    if include_attachments:
+        params["include"] = "attachments"
+    response = await client.get(
+        f"/projects/{project_id}/wiki/{title}.json",
+        params=params if params else None,
+    )
+    return response
+
+
+@mcp.tool()
+async def get_wiki_page_version(
+    project_id: int | str,
+    title: str,
+    version: int,
+) -> dict:
+    """Get a specific version of a wiki page.
+
+    Args:
+        project_id: Project ID (numeric) or project identifier (string) (required)
+        title: Wiki page title (required)
+        version: Version number to retrieve (required)
+
+    Returns:
+        Dictionary containing the wiki page content at the specified version
+
+    Note:
+        Use this to view the history of a wiki page or compare versions.
+    """
+    client = get_redmine_client()
+    response = await client.get(
+        f"/projects/{project_id}/wiki/{title}/{version}.json"
+    )
+    return response
+
+
+@mcp.tool()
+async def create_or_update_wiki_page(
+    project_id: int | str,
+    title: str,
+    text: str,
+    comments: str | None = None,
+    parent_title: str | None = None,
+    uploads: list[dict] | None = None,
+) -> dict:
+    """Create a new wiki page or update an existing one.
+
+    Args:
+        project_id: Project ID (numeric) or project identifier (string) (required)
+        title: Wiki page title (required)
+        text: Page content in Textile or Markdown format (required)
+        comments: Comment describing the change (optional)
+        parent_title: Title of the parent page for hierarchy (optional)
+        uploads: List of file uploads to attach. Each upload should be a dictionary with:
+            - token: Upload token from upload_attachment() (required)
+            - filename: Filename to use in Redmine (required)
+            - content_type: MIME type (optional)
+            - description: File description (optional)
+
+    Returns:
+        Dictionary containing the created/updated wiki page information
+
+    Note:
+        - The text field is required and cannot be empty (Redmine returns 422 error)
+        - Redmine automatically manages version history
+        - Use existing upload_attachment() to get upload tokens for attachments
+    """
+    client = get_redmine_client()
+
+    if not text:
+        raise ValueError("text field is required and cannot be empty")
+
+    wiki_page_data = {"text": text}
+
+    if comments:
+        wiki_page_data["comments"] = comments
+    if parent_title:
+        wiki_page_data["parent_title"] = parent_title
+    if uploads:
+        wiki_page_data["uploads"] = uploads
+
+    request_data = {"wiki_page": wiki_page_data}
+
+    response = await client.put(
+        f"/projects/{project_id}/wiki/{title}.json",
+        json_data=request_data,
+    )
+
+    # Redmine returns empty response on successful update, so fetch the page
+    if not response:
+        return await get_wiki_page(project_id, title)
+
+    return response
+
+
+@mcp.tool()
+async def delete_wiki_page(
+    project_id: int | str,
+    title: str,
+) -> dict:
+    """Delete a wiki page.
+
+    Args:
+        project_id: Project ID (numeric) or project identifier (string) (required)
+        title: Wiki page title to delete (required)
+
+    Returns:
+        Dictionary containing:
+        - success: True if deletion succeeded
+        - message: Confirmation message
+
+    Note:
+        This permanently deletes the wiki page and all its version history.
+        The user must have permission to delete wiki pages.
+    """
+    client = get_redmine_client()
+    await client.delete(f"/projects/{project_id}/wiki/{title}.json")
+    return {"success": True, "message": f"Wiki page '{title}' deleted successfully"}
+
+
 def main():
     """Main entry point for the MCP server."""
     try:
