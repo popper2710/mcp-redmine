@@ -687,12 +687,12 @@ async def get_wiki_page(
         - attachments: List of attachments (if include_attachments is True)
     """
     client = get_redmine_client()
-    params = {}
+    params = None
     if include_attachments:
-        params["include"] = "attachments"
+        params = {"include": "attachments"}
     response = await client.get(
         f"/projects/{project_id}/wiki/{title}.json",
-        params=params if params else None,
+        params=params,
     )
     return response
 
@@ -794,17 +794,15 @@ async def delete_wiki_page(
         title: Wiki page title to delete (required)
 
     Returns:
-        Dictionary containing:
-        - success: True if deletion succeeded
-        - message: Confirmation message
+        Empty dictionary on success (Redmine returns 204 No Content)
 
     Note:
         This permanently deletes the wiki page and all its version history.
         The user must have permission to delete wiki pages.
     """
     client = get_redmine_client()
-    await client.delete(f"/projects/{project_id}/wiki/{title}.json")
-    return {"success": True, "message": f"Wiki page '{title}' deleted successfully"}
+    response = await client.delete(f"/projects/{project_id}/wiki/{title}.json")
+    return response
 
 
 def main():
