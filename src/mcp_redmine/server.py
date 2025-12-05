@@ -2,6 +2,8 @@
 
 import os
 import sys
+from pathlib import Path
+
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
@@ -630,6 +632,8 @@ async def download_attachment(
 
     Note:
         The parent directory will be created automatically if it doesn't exist.
+        The caller is responsible for validating save_path to prevent
+        path traversal attacks or writing to sensitive locations.
     """
     client = get_redmine_client()
 
@@ -660,7 +664,6 @@ async def download_attachment(
 async def upload_attachment(
     file_path: str,
     filename: str | None = None,
-    content_type: str | None = None,
 ) -> dict:
     """Upload a file to Redmine and get an upload token.
 
@@ -670,8 +673,6 @@ async def upload_attachment(
     Args:
         file_path: Absolute path to the file to upload
         filename: Optional filename to use in Redmine (defaults to the file's basename)
-        content_type: Optional MIME type (for documentation purposes only,
-                     actual content-type sent to Redmine is application/octet-stream)
 
     Returns:
         Dictionary containing:
@@ -693,6 +694,10 @@ async def upload_attachment(
                 "description": "Monthly report"
             }]
         )
+
+    Note:
+        The caller is responsible for validating file_path to prevent
+        unauthorized file access.
     """
     client = get_redmine_client()
 
@@ -705,8 +710,6 @@ async def upload_attachment(
     if not token:
         raise RedmineError("Failed to get upload token from Redmine")
 
-    # Determine the filename that was used
-    from pathlib import Path
     actual_filename = filename or Path(file_path).name
 
     return {
