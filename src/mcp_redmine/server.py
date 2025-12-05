@@ -189,19 +189,45 @@ async def search(
 
 
 @mcp.tool()
-async def get_issue(issue_id: int) -> dict:
+async def get_issue(
+    issue_id: int,
+    include_journals: bool = False,
+    include_children: bool = False,
+    include_attachments: bool = True,
+    include_relations: bool = True,
+) -> dict:
     """Get detailed information about a specific issue (ticket).
 
     Args:
         issue_id: The ID of the issue to retrieve
+        include_journals: Include comment/change history (default: False).
+            WARNING: Can be very large as it contains full old/new values
+            for every field change including description edits.
+        include_children: Include child issues/subtasks (default: False)
+        include_attachments: Include attachment list (default: True)
+        include_relations: Include related issues (default: True)
 
     Returns:
         Dictionary containing detailed issue information including
         journals (comments), attachments, and relations
     """
     client = get_redmine_client()
-    # Include associated data: journals, children, attachments, relations
-    params = {"include": "journals,children,attachments,relations"}
+
+    # Build include parameter based on options
+    includes = []
+    if include_journals:
+        includes.append("journals")
+    if include_children:
+        includes.append("children")
+    if include_attachments:
+        includes.append("attachments")
+    if include_relations:
+        includes.append("relations")
+
+    params = {}
+    if includes:
+        params["include"] = ",".join(includes)
+
     response = await client.get(f"/issues/{issue_id}.json", params=params)
     return response
 
