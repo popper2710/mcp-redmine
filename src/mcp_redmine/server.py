@@ -217,6 +217,7 @@ async def list_issues(
     priority_id: int | None = None,
     limit: int = 25,
     offset: int = 0,
+    minimal_output: bool = True,
 ) -> dict:
     """Search and list issues (tickets) with various filters.
 
@@ -228,6 +229,9 @@ async def list_issues(
         priority_id: Filter by priority ID (optional)
         limit: Maximum number of issues to return (default: 25, max: 100)
         offset: Offset for pagination (default: 0)
+        minimal_output: Return minimal issue information (default: True).
+            When True, returns only id, subject, status, priority, assigned_to, and project.
+            When False, returns full issue details from Redmine API.
 
     Returns:
         Dictionary containing list of issues, total count, and pagination info
@@ -252,6 +256,29 @@ async def list_issues(
         params["priority_id"] = priority_id
 
     response = await client.get("/issues.json", params=params)
+
+    # Return minimal output if requested (default)
+    if minimal_output:
+        minimal_issues = []
+        for issue in response.get("issues", []):
+            minimal_issue = {
+                "id": issue.get("id"),
+                "subject": issue.get("subject"),
+                "status": issue.get("status", {}).get("name"),
+                "priority": issue.get("priority", {}).get("name"),
+                "assigned_to": issue.get("assigned_to", {}).get("name")
+                if issue.get("assigned_to")
+                else None,
+                "project": issue.get("project", {}).get("name"),
+            }
+            minimal_issues.append(minimal_issue)
+        return {
+            "issues": minimal_issues,
+            "total_count": response.get("total_count", 0),
+            "offset": response.get("offset", 0),
+            "limit": response.get("limit", 0),
+        }
+
     return response
 
 
