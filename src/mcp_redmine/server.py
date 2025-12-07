@@ -191,19 +191,45 @@ async def search(
 
 
 @mcp.tool()
-async def get_issue(issue_id: int) -> dict:
+async def get_issue(
+    issue_id: int,
+    include_journals: bool = False,
+    include_children: bool = False,
+    include_attachments: bool = True,
+    include_relations: bool = True,
+) -> dict:
     """Get detailed information about a specific issue (ticket).
 
     Args:
         issue_id: The ID of the issue to retrieve
+        include_journals: Include comment/change history (default: False).
+            WARNING: Can be very large as it contains full old/new values
+            for every field change including description edits.
+        include_children: Include child issues/subtasks (default: False)
+        include_attachments: Include attachment list (default: True)
+        include_relations: Include related issues (default: True)
 
     Returns:
         Dictionary containing detailed issue information including
         journals (comments), attachments, and relations
     """
     client = get_redmine_client()
-    # Include associated data: journals, children, attachments, relations
-    params = {"include": "journals,children,attachments,relations"}
+
+    # Build include parameter based on options
+    includes = []
+    if include_journals:
+        includes.append("journals")
+    if include_children:
+        includes.append("children")
+    if include_attachments:
+        includes.append("attachments")
+    if include_relations:
+        includes.append("relations")
+
+    params = {}
+    if includes:
+        params["include"] = ",".join(includes)
+
     response = await client.get(f"/issues/{issue_id}.json", params=params)
     return response
 
@@ -219,6 +245,7 @@ async def list_issues(
     priority_id: int | None = None,
     limit: int = 25,
     offset: int = 0,
+    minimal_output: bool = True,
 ) -> dict:
     """Search and list issues (tickets) with various filters.
 
@@ -230,6 +257,9 @@ async def list_issues(
         priority_id: Filter by priority ID (optional)
         limit: Maximum number of issues to return (default: 25, max: 100)
         offset: Offset for pagination (default: 0)
+        minimal_output: Return minimal issue information (default: True).
+            When True, returns only id, subject, status, priority, assigned_to, and project.
+            When False, returns full issue details from Redmine API.
 
     Returns:
         Dictionary containing list of issues, total count, and pagination info
@@ -254,6 +284,29 @@ async def list_issues(
         params["priority_id"] = priority_id
 
     response = await client.get("/issues.json", params=params)
+
+    # Return minimal output if requested (default)
+    if minimal_output:
+        minimal_issues = []
+        for issue in response.get("issues", []):
+            minimal_issue = {
+                "id": issue.get("id"),
+                "subject": issue.get("subject"),
+                "status": issue.get("status", {}).get("name"),
+                "priority": issue.get("priority", {}).get("name"),
+                "assigned_to": issue.get("assigned_to", {}).get("name")
+                if issue.get("assigned_to")
+                else None,
+                "project": issue.get("project", {}).get("name"),
+            }
+            minimal_issues.append(minimal_issue)
+        return {
+            "issues": minimal_issues,
+            "total_count": response.get("total_count", 0),
+            "offset": response.get("offset", 0),
+            "limit": response.get("limit", 0),
+        }
+
     return response
 
 
