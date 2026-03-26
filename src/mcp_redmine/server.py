@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .models import RedmineConfig, RedmineError
 from .redmine_client import RedmineClient
+from .text_utils import apply_patches
 
 # Load environment variables from .env file
 load_dotenv()
@@ -418,6 +419,7 @@ async def update_issue(
     issue_id: int,
     subject: str | None = None,
     description: str | None = None,
+    description_patches: list[dict] | None = None,
     tracker_id: int | None = None,
     status_id: int | None = None,
     priority_id: int | None = None,
@@ -438,10 +440,23 @@ async def update_issue(
 ) -> dict:
     """Update an existing issue (ticket).
 
+    DESCRIPTION UPDATES - two approaches (mutually exclusive, do NOT provide both):
+      - description: Replace the entire description with new text.
+      - description_patches: Apply targeted find-and-replace edits to the existing description.
+        Format: [{"old_text": "text to find", "new_text": "replacement"}]
+        Optional "replace_all": true to replace all occurrences (default: false).
+
     Args:
         issue_id: Issue ID to update (required)
         subject: New subject/title (optional)
-        description: New description (optional)
+        description: New description - replaces entire content (optional).
+            Cannot be used together with description_patches.
+        description_patches: List of find-and-replace edits for the existing description (optional).
+            Each dict: {"old_text": "text to find", "new_text": "replacement"}.
+            Optional "replace_all": true to replace all occurrences (default: false).
+            Example: [{"old_text": "Status: Draft", "new_text": "Status: Final"}]
+            IMPORTANT: Use get_issue() first to see exact current content before constructing patches.
+            Cannot be used together with description.
         tracker_id: New tracker ID (optional)
         status_id: New status ID (optional)
         priority_id: New priority ID (optional)
@@ -470,6 +485,12 @@ async def update_issue(
     """
     client = get_redmine_client()
 
+    if description is not None and description_patches is not None:
+        raise ValueError(
+            "Cannot provide both 'description' and 'description_patches'. "
+            "Use 'description' for full replacement, or 'description_patches' for partial edits."
+        )
+
     # Build issue update data
     issue_data = {}
 
@@ -478,6 +499,22 @@ async def update_issue(
         issue_data["subject"] = subject
     if description is not None:
         issue_data["description"] = description
+    if description_patches is not None:
+        # Note: no optimistic locking available for issues (Redmine API limitation).
+        # Concurrent edits between this GET and the subsequent PUT may be overwritten.
+        current = await client.get(f"/issues/{issue_id}.json")
+        current_desc = current.get("issue", {}).get("description")
+        if not current_desc:
+            raise ValueError(
+                "Cannot apply description_patches: issue has no description content. "
+                "Use 'description' parameter to set initial content."
+            )
+        patched = apply_patches(current_desc, description_patches)
+        if not patched.strip():
+            raise ValueError(
+                "Patch result would produce empty description."
+            )
+        issue_data["description"] = patched
     if tracker_id is not None:
         issue_data["tracker_id"] = tracker_id
     if status_id is not None:
@@ -959,17 +996,33 @@ async def get_wiki_page_version(
 async def create_or_update_wiki_page(
     project_id: int | str,
     title: str,
-    text: str,
+    text: str | None = None,
+    text_patches: list[dict] | None = None,
     comments: str | None = None,
     parent_title: str | None = None,
     uploads: list[dict] | None = None,
 ) -> dict:
     """Create a new wiki page or update an existing one.
 
+    CONTENT - provide exactly one of text or text_patches (mutually exclusive):
+      - text: Full page content. Required when creating a new page. For updates, replaces entire content.
+      - text_patches: Apply targeted find-and-replace edits to the existing page content.
+        Format: [{"old_text": "text to find", "new_text": "replacement"}]
+        Optional "replace_all": true to replace all occurrences (default: false).
+        Only works on existing pages. Cannot be used to create new pages.
+
     Args:
         project_id: Project ID (numeric) or project identifier (string) (required)
         title: Wiki page title (required)
-        text: Page content in Textile or Markdown format (required)
+        text: Full page content in Textile or Markdown format.
+            Required for creating new pages. Replaces entire content on update.
+            Cannot be used together with text_patches.
+        text_patches: List of find-and-replace edits for the existing page content.
+            Each dict: {"old_text": "text to find", "new_text": "replacement"}.
+            Optional "replace_all": true to replace all occurrences (default: false).
+            Example: [{"old_text": "## Old Section", "new_text": "## New Section"}]
+            IMPORTANT: Use get_wiki_page() first to see exact current content before constructing patches.
+            Cannot be used together with text. Only works on existing pages.
         comments: Comment describing the change (optional)
         parent_title: Title of the parent page for hierarchy (optional)
         uploads: List of file uploads to attach. Each upload should be a dictionary with:
@@ -982,16 +1035,54 @@ async def create_or_update_wiki_page(
         Dictionary containing the created/updated wiki page information
 
     Note:
-        - The text field is required and cannot be empty (Redmine returns 422 error)
         - Redmine automatically manages version history
         - Use existing upload_attachment() to get upload tokens for attachments
     """
     client = get_redmine_client()
 
-    if not text:
-        raise ValueError("text field is required and cannot be empty")
+    if text is not None and text_patches is not None:
+        raise ValueError(
+            "Cannot provide both 'text' and 'text_patches'. "
+            "Use 'text' for full content, or 'text_patches' for partial edits."
+        )
+    if text is None and text_patches is None:
+        raise ValueError(
+            "Either 'text' (for full content) or 'text_patches' (for partial edits) must be provided."
+        )
+    if text is not None and text == "":
+        raise ValueError("text field cannot be empty string")
 
-    wiki_page_data = {"text": text}
+    wiki_page_data = {}
+
+    if text_patches is not None:
+        try:
+            current_page = await client.get(
+                f"/projects/{project_id}/wiki/{title}.json"
+            )
+            current_text = current_page.get("wiki_page", {}).get("text", "")
+            current_version = current_page.get("wiki_page", {}).get("version")
+        except RedmineError as e:
+            if e.status_code == 404:
+                raise ValueError(
+                    "Cannot use text_patches on a page that doesn't exist. "
+                    "Use 'text' to create a new page."
+                )
+            raise
+        if not current_text:
+            raise ValueError(
+                "Cannot apply text_patches: wiki page has no content. "
+                "Use 'text' to set initial content."
+            )
+        text = apply_patches(current_text, text_patches)
+        if not text.strip():
+            raise ValueError(
+                "Patch result would produce empty content, which Redmine does not allow."
+            )
+        # Optimistic locking: include version to detect concurrent edits
+        if current_version is not None:
+            wiki_page_data["version"] = current_version
+
+    wiki_page_data["text"] = text
 
     if comments:
         wiki_page_data["comments"] = comments
