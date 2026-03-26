@@ -163,10 +163,6 @@ class TestApplyPatchesErrors:
 
     def test_long_content_preview_truncated(self):
         long_content = "x" * 500
-        try:
+        with pytest.raises(ValueError, match=r"\.\.\.") as exc_info:
             apply_patches(long_content, [{"old_text": "yyy", "new_text": "zzz"}])
-        except ValueError as e:
-            # Preview should be truncated to ~200 chars + "..."
-            msg = str(e)
-            assert "..." in msg
-            assert len(msg) < 600
+        assert len(str(exc_info.value)) < 600
