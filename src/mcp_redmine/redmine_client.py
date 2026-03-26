@@ -81,6 +81,8 @@ class RedmineClient:
                 # Empty response (common for successful PUT/DELETE operations)
                 return {}
 
+        except RedmineError:
+            raise
         except httpx.TimeoutException as e:
             raise RedmineError(f"Request timeout after {self.timeout} seconds") from e
         except httpx.ConnectError as e:
