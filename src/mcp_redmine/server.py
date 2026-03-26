@@ -417,6 +417,7 @@ async def create_issue(
 @mcp.tool()
 async def update_issue(
     issue_id: int,
+    project_id: int | str | None = None,
     subject: str | None = None,
     description: str | None = None,
     description_patches: list[dict] | None = None,
@@ -448,6 +449,7 @@ async def update_issue(
 
     Args:
         issue_id: Issue ID to update (required)
+        project_id: Project ID (numeric) or identifier (string) to move the issue to another project (optional)
         subject: New subject/title (optional)
         description: New description - replaces entire content (optional).
             Cannot be used together with description_patches.
@@ -495,6 +497,8 @@ async def update_issue(
     issue_data = {}
 
     # Add fields to update
+    if project_id is not None:
+        issue_data["project_id"] = project_id
     if subject is not None:
         issue_data["subject"] = subject
     if description is not None:
@@ -1011,6 +1015,10 @@ async def create_or_update_wiki_page(
         Optional "replace_all": true to replace all occurrences (default: false).
         Only works on existing pages. Cannot be used to create new pages.
 
+    METADATA-ONLY UPDATE:
+      For existing pages, you can update only metadata (parent_title, comments, uploads)
+      without providing text or text_patches.
+
     Args:
         project_id: Project ID (numeric) or project identifier (string) (required)
         title: Wiki page title (required)
@@ -1045,12 +1053,30 @@ async def create_or_update_wiki_page(
             "Cannot provide both 'text' and 'text_patches'. "
             "Use 'text' for full content, or 'text_patches' for partial edits."
         )
-    if text is None and text_patches is None:
-        raise ValueError(
-            "Either 'text' (for full content) or 'text_patches' (for partial edits) must be provided."
-        )
     if text is not None and text == "":
         raise ValueError("text field cannot be empty string")
+
+    metadata_only = text is None and text_patches is None
+
+    if metadata_only:
+        if not any([parent_title, comments, uploads]):
+            raise ValueError(
+                "Either 'text' (for full content), 'text_patches' (for partial edits), "
+                "or at least one metadata field (parent_title, comments, uploads) must be provided."
+            )
+        # Fetch current text (Redmine API requires text field even for metadata-only updates)
+        try:
+            current_page = await client.get(
+                f"/projects/{project_id}/wiki/{title}.json"
+            )
+            text = current_page.get("wiki_page", {}).get("text", "")
+        except RedmineError as e:
+            if e.status_code == 404:
+                raise ValueError(
+                    "Cannot perform metadata-only update on a page that doesn't exist. "
+                    "Use 'text' to create a new page."
+                )
+            raise
 
     wiki_page_data = {}
 
@@ -1082,7 +1108,8 @@ async def create_or_update_wiki_page(
         if current_version is not None:
             wiki_page_data["version"] = current_version
 
-    wiki_page_data["text"] = text
+    if text is not None:
+        wiki_page_data["text"] = text
 
     if comments:
         wiki_page_data["comments"] = comments
