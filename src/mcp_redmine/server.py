@@ -10,6 +10,11 @@ from mcp.server.fastmcp import FastMCP
 from .models import RedmineConfig, RedmineError
 from .redmine_client import RedmineClient
 from .text_utils import apply_patches
+from .verification import (
+    collect_unapplied_fields,
+    format_create_warning,
+    format_update_error_message,
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -359,7 +364,11 @@ async def create_issue(
             - description: File description (optional)
 
     Returns:
-        Dictionary containing the created issue information including its ID
+        Dictionary containing the created issue information including its ID.
+        If Redmine silently ignored some of the requested fields (workflow or
+        permission restrictions), the response contains a "warnings" list
+        describing them. In that case the issue WAS created - do NOT retry
+        creation; use update_issue to fix the remaining fields instead.
     """
     client = get_redmine_client()
 
@@ -411,7 +420,37 @@ async def create_issue(
     request_data = {"issue": issue_data}
 
     response = await client.post("/issues.json", json_data=request_data)
+
+    # Redmine silently discards fields the API user may not set (workflow /
+    # permission restrictions) while still returning 201. Surface those as
+    # warnings - not an error, because the issue WAS created and an error
+    # would push agents into retrying and creating duplicates.
+    created_issue = response.get("issue", {})
+    unapplied = collect_unapplied_fields(issue_data, created_issue)
+    if unapplied:
+        response["warnings"] = [
+            format_create_warning(created_issue.get("id"), unapplied)
+        ]
+
     return response
+
+
+async def _add_watchers(
+    client: RedmineClient, issue_id: int, watcher_user_ids: list[int]
+) -> None:
+    """Add watchers via POST /issues/:id/watchers.json."""
+    for user_id in watcher_user_ids:
+        try:
+            await client.post(
+                f"/issues/{issue_id}/watchers.json",
+                json_data={"user_id": user_id},
+            )
+        except RedmineError as e:
+            raise RedmineError(
+                f"The field update for issue #{issue_id} was submitted, but "
+                f"adding watcher user {user_id} failed: {e.message}",
+                e.status_code,
+            ) from e
 
 
 @mcp.tool()
@@ -471,7 +510,8 @@ async def update_issue(
         estimated_hours: New estimated hours as float (optional)
         done_ratio: Progress percentage 0-100 (optional)
         is_private: Whether the issue is private (optional)
-        watcher_user_ids: List of user IDs to add as watchers (optional, requires Redmine 2.3.0+)
+        watcher_user_ids: User IDs to add as watchers (optional; add-only,
+            never removes existing watchers; requires Redmine 2.3.0+)
         custom_fields: List of custom field dictionaries with 'id' and 'value' keys (optional)
         notes: Comment to add to the issue history (optional)
         private_notes: Whether the notes are private (optional)
@@ -482,8 +522,15 @@ async def update_issue(
             - description: File description (optional)
 
     Returns:
-        Dictionary containing the updated issue information or empty dict on success
-        (Redmine API returns 200 with no content on successful PUT)
+        Dictionary containing the updated issue (fetched back after the
+        update). The description is truncated in the response unless this
+        update changed it; use get_issue() for the full text.
+
+    Raises:
+        RedmineError: If Redmine silently discarded any requested field
+            (workflow/permission rules, e.g. a status transition not allowed
+            for your role). The error lists the discarded fields and, when
+            available, the allowed statuses.
     """
     client = get_redmine_client()
 
@@ -547,8 +594,6 @@ async def update_issue(
         issue_data["done_ratio"] = done_ratio
     if is_private is not None:
         issue_data["is_private"] = is_private
-    if watcher_user_ids is not None:
-        issue_data["watcher_user_ids"] = watcher_user_ids
     if custom_fields is not None:
         issue_data["custom_fields"] = custom_fields
     if notes is not None:
@@ -559,20 +604,138 @@ async def update_issue(
         issue_data["uploads"] = uploads
 
     # Check if at least one field is being updated
-    if not issue_data:
+    if not issue_data and not watcher_user_ids:
         raise ValueError("At least one field must be specified for update")
 
-    # Wrap in "issue" key as required by Redmine API
-    request_data = {"issue": issue_data}
+    if issue_data:
+        # Wrap in "issue" key as required by Redmine API
+        request_data = {"issue": issue_data}
+        await client.put(f"/issues/{issue_id}.json", json_data=request_data)
 
-    response = await client.put(f"/issues/{issue_id}.json", json_data=request_data)
+    # Redmine ignores watcher_user_ids in update payloads (it is only
+    # honored on creation), so watchers go through the dedicated API.
+    if watcher_user_ids is not None:
+        await _add_watchers(client, issue_id, watcher_user_ids)
 
-    # Redmine returns empty response on successful update, so fetch the updated issue
+    # Redmine silently discards fields the API user may not set (workflow /
+    # permission restrictions) while still returning 200, so read the issue
+    # back and fail loudly if anything did not stick.
+    includes = "allowed_statuses"
+    if watcher_user_ids is not None:
+        includes += ",watchers"
+    updated = await client.get(
+        f"/issues/{issue_id}.json", params={"include": includes}
+    )
+    updated_issue = updated.get("issue", {})
+
+    # A project identifier string cannot be compared against the numeric id
+    # in the issue JSON; resolve it so project moves get verified too.
+    if isinstance(issue_data.get("project_id"), str):
+        try:
+            project = await client.get(
+                f"/projects/{issue_data['project_id']}.json"
+            )
+            issue_data["project_id"] = project.get("project", {}).get("id")
+        except RedmineError:
+            pass  # unresolvable; verification skips non-numeric project_id
+
+    unapplied = collect_unapplied_fields(issue_data, updated_issue)
+
+    # The watchers endpoint returns 200 even for users it cannot add
+    # (nonexistent, locked, or non-member), so watchers need the same
+    # read-back check. Redmine renders the watchers include only when the
+    # API user may view watchers; without it the check is skipped.
+    if watcher_user_ids is not None and "watchers" in updated_issue:
+        actual_watchers = {
+            watcher.get("id") for watcher in updated_issue["watchers"]
+        }
+        for user_id in watcher_user_ids:
+            if user_id not in actual_watchers:
+                unapplied.append(
+                    {
+                        "field": "watcher_user_ids",
+                        "requested": user_id,
+                        "actual": None,
+                    }
+                )
+    updated_issue.pop("watchers", None)
+
+    if unapplied:
+        raise RedmineError(
+            format_update_error_message(
+                unapplied, updated_issue.get("allowed_statuses")
+            )
+        )
+
+    # allowed_statuses was only needed for the error message above (and is
+    # absent on Redmine < 5.0); keep the response shape stable.
+    updated_issue.pop("allowed_statuses", None)
+
+    # Avoid re-sending a large unchanged description into the caller's
+    # context when this update did not touch it.
+    if description is None and description_patches is None:
+        current_desc = updated_issue.get("description")
+        if isinstance(current_desc, str) and len(current_desc) > 200:
+            updated_issue["description"] = (
+                current_desc[:200]
+                + "... (truncated; use get_issue() for full text)"
+            )
+
+    return updated
+
+
+@mcp.tool()
+async def update_issue_journal(
+    journal_id: int,
+    notes: str,
+) -> dict:
+    """Update the notes (comment text) of an existing issue journal (comment).
+
+    Use this to edit a comment that was previously added to an issue.
+    Journal IDs can be found with get_issue(issue_id, include_journals=True) -
+    each entry in the "journals" array has an "id" field.
+
+    Args:
+        journal_id: The ID of the journal (comment) to update (required).
+            This is the journal's own ID, NOT the issue ID.
+        notes: The new comment text (required). Replaces the entire notes.
+            WARNING: An empty string deletes the journal entirely if it has
+            no associated field changes (Redmine behavior).
+
+    Returns:
+        Dictionary containing success flag, journal_id, and the new notes.
+
+    Note:
+        Requires Redmine 5.0+ and the "Edit notes" (or "Edit own notes")
+        permission.
+    """
+    client = get_redmine_client()
+
+    request_data = {"journal": {"notes": notes}}
+
+    try:
+        response = await client.put(
+            f"/journals/{journal_id}.json", json_data=request_data
+        )
+    except RedmineError as e:
+        if e.status_code == 404:
+            raise RedmineError(
+                f"Journal {journal_id} was not found, OR this Redmine server "
+                "is older than 5.0, which does not support editing journal "
+                "notes via the REST API. On older servers the comment can "
+                "only be edited in the Redmine web UI.",
+                404,
+            ) from e
+        raise
+
+    # Redmine returns an empty body on success; there is no single-journal
+    # GET endpoint, so report the values we set.
     if not response:
-        # Fetch updated issue to return
-        updated_issue = await client.get(f"/issues/{issue_id}.json")
-        return updated_issue
-
+        return {
+            "success": True,
+            "journal_id": journal_id,
+            "notes": notes,
+        }
     return response
 
 
@@ -611,6 +774,10 @@ async def create_issue_relation(
         - "duplicates" creates "duplicated" on the other side
         - "blocks" creates "blocked" on the other side
         - "precedes" creates "follows" on the other side
+
+        The Redmine REST API has no update operation for relations.
+        To change an existing relation, delete it with
+        delete_issue_relation() and create a new one.
     """
     client = get_redmine_client()
 
@@ -670,6 +837,8 @@ async def delete_issue_relation(relation_id: int) -> dict:
     Note:
         To get relation IDs, use get_issue() with the issue ID and look at
         the "relations" array in the response. Each relation has an "id" field.
+
+        Relations cannot be updated; delete and re-create to change one.
     """
     client = get_redmine_client()
     response = await client.delete(f"/relations/{relation_id}.json")
@@ -810,6 +979,64 @@ async def upload_attachment(
         "token": token,
         "filename": actual_filename,
     }
+
+
+@mcp.tool()
+async def update_attachment(
+    attachment_id: int,
+    filename: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update the metadata (filename and/or description) of an attachment.
+
+    The file content itself cannot be changed - delete the attachment and
+    upload a new file instead.
+
+    Args:
+        attachment_id: The ID of the attachment to update (required)
+        filename: New filename (optional)
+        description: New description (optional). Pass an empty string to
+            clear the description.
+
+    Returns:
+        Dictionary containing the updated attachment metadata.
+
+    Note:
+        Requires Redmine 3.4 or later.
+    """
+    client = get_redmine_client()
+
+    attachment_data = {}
+    if filename is not None:
+        attachment_data["filename"] = filename
+    if description is not None:
+        attachment_data["description"] = description
+
+    if not attachment_data:
+        raise ValueError(
+            "At least one of 'filename' or 'description' must be provided"
+        )
+
+    request_data = {"attachment": attachment_data}
+
+    # Undocumented API: PATCH /attachments/:id, added in Redmine 3.4
+    # (redmine.org issue #22356).
+    try:
+        await client.patch(
+            f"/attachments/{attachment_id}.json", json_data=request_data
+        )
+    except RedmineError as e:
+        if e.status_code in (404, 405):
+            raise RedmineError(
+                f"Attachment {attachment_id} was not found, OR this Redmine "
+                "server is older than 3.4, which does not support updating "
+                "attachments via the REST API.",
+                e.status_code,
+            ) from e
+        raise
+
+    # Fetch the attachment back so the caller sees the persisted state
+    return await client.get(f"/attachments/{attachment_id}.json")
 
 
 @mcp.tool()

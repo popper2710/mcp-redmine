@@ -60,19 +60,7 @@ class RedmineClient:
                 json=json_data,
             )
 
-            # Handle HTTP errors
-            if response.status_code >= 400:
-                error_msg = f"HTTP {response.status_code}: {response.text}"
-                if response.status_code == 401:
-                    error_msg = "Authentication failed. Please check your API key."
-                elif response.status_code == 403:
-                    error_msg = "Access forbidden. Please check your permissions."
-                elif response.status_code == 404:
-                    error_msg = "Resource not found."
-                elif response.status_code >= 500:
-                    error_msg = f"Redmine server error: {response.status_code}"
-
-                raise RedmineError(error_msg, response.status_code)
+            self._raise_for_status(f"{method} {endpoint}", response)
 
             # Return JSON response (handle empty responses from successful updates)
             if response.text.strip():
@@ -93,6 +81,64 @@ class RedmineClient:
             raise RedmineError(f"HTTP error occurred: {str(e)}") from e
         except Exception as e:
             raise RedmineError(f"Unexpected error: {str(e)}") from e
+
+    def _raise_for_status(
+        self,
+        request_desc: str,
+        response: httpx.Response,
+        message_422: Optional[str] = None,
+    ) -> None:
+        """Raise RedmineError for 4xx/5xx responses, naming the failing
+        request so callers can tell which operation was rejected.
+
+        Args:
+            request_desc: Human-readable request description ("PUT /issues/1.json")
+            response: The HTTP response to inspect
+            message_422: Override for the 422 message when the caller knows
+                a more likely cause than the generic validation text
+        """
+        if response.status_code < 400:
+            return
+
+        error_msg = (
+            f"HTTP {response.status_code} for {request_desc}: {response.text}"
+        )
+        if response.status_code == 401:
+            error_msg = "Authentication failed. Please check your API key."
+        elif response.status_code == 403:
+            error_msg = (
+                f"Access forbidden (403) for {request_desc}. "
+                "The API user lacks the required permission or role "
+                "for this operation."
+            )
+        elif response.status_code == 404:
+            error_msg = f"Resource not found (404): {request_desc}"
+        elif response.status_code == 422:
+            error_msg = message_422 or self._format_validation_error(
+                request_desc, response
+            )
+        elif response.status_code >= 500:
+            error_msg = (
+                f"Redmine server error: {response.status_code} "
+                f"for {request_desc}"
+            )
+
+        raise RedmineError(error_msg, response.status_code)
+
+    @staticmethod
+    def _format_validation_error(
+        request_desc: str, response: httpx.Response
+    ) -> str:
+        """Format a 422 response using Redmine's "errors" array when present."""
+        try:
+            body = response.json()
+            errors = body.get("errors") if isinstance(body, dict) else None
+        except ValueError:
+            errors = None
+        if errors:
+            joined = "; ".join(str(error) for error in errors)
+            return f"Validation failed (422) for {request_desc}: {joined}"
+        return f"HTTP 422 for {request_desc}: {response.text}"
 
     async def get(
         self, endpoint: str, params: Optional[Dict[str, Any]] = None
@@ -135,6 +181,20 @@ class RedmineClient:
             JSON response
         """
         return await self._request("PUT", endpoint, json_data=json_data)
+
+    async def patch(
+        self, endpoint: str, json_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Make a PATCH request.
+
+        Args:
+            endpoint: API endpoint path
+            json_data: JSON body
+
+        Returns:
+            JSON response
+        """
+        return await self._request("PATCH", endpoint, json_data=json_data)
 
     async def delete(self, endpoint: str) -> Dict[str, Any]:
         """Make a DELETE request.
@@ -200,24 +260,14 @@ class RedmineClient:
                 },
             )
 
-            # Handle HTTP errors
-            if response.status_code >= 400:
-                error_msg = f"HTTP {response.status_code}: {response.text}"
-                if response.status_code == 401:
-                    error_msg = "Authentication failed. Please check your API key."
-                elif response.status_code == 403:
-                    error_msg = "Access forbidden. Please check your permissions."
-                elif response.status_code == 404:
-                    error_msg = "Upload endpoint not found."
-                elif response.status_code == 422:
-                    error_msg = (
-                        "File upload failed. The file may exceed the maximum "
-                        "allowed size configured on the Redmine server."
-                    )
-                elif response.status_code >= 500:
-                    error_msg = f"Redmine server error: {response.status_code}"
-
-                raise RedmineError(error_msg, response.status_code)
+            self._raise_for_status(
+                "POST /uploads.json",
+                response,
+                message_422=(
+                    "File upload failed. The file may exceed the maximum "
+                    "allowed size configured on the Redmine server."
+                ),
+            )
 
             return response.json()
 
@@ -271,19 +321,7 @@ class RedmineClient:
                 follow_redirects=True,
             )
 
-            # Handle HTTP errors
-            if response.status_code >= 400:
-                error_msg = f"HTTP {response.status_code}: Download failed"
-                if response.status_code == 401:
-                    error_msg = "Authentication failed. Please check your API key."
-                elif response.status_code == 403:
-                    error_msg = "Access forbidden. Please check your permissions."
-                elif response.status_code == 404:
-                    error_msg = "File not found on server."
-                elif response.status_code >= 500:
-                    error_msg = f"Redmine server error: {response.status_code}"
-
-                raise RedmineError(error_msg, response.status_code)
+            self._raise_for_status(f"GET {url}", response)
 
             # Save file content
             with open(save_path_obj, "wb") as f:

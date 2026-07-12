@@ -3,7 +3,7 @@
 ALLOWED_PATCH_KEYS = {"old_text", "new_text", "replace_all"}
 
 
-def _normalize_line_endings(text: str) -> str:
+def normalize_line_endings(text: str) -> str:
     """Normalize CRLF and CR line endings to LF."""
     if "\r" not in text:
         return text
@@ -35,7 +35,7 @@ def apply_patches(content: str, patches: list[dict]) -> str:
     if not patches:
         raise ValueError("At least one patch is required")
 
-    content = _normalize_line_endings(content)
+    content = normalize_line_endings(content)
 
     for i, patch in enumerate(patches):
         patch_num = i + 1
@@ -69,8 +69,8 @@ def apply_patches(content: str, patches: list[dict]) -> str:
         if not old_text:
             raise ValueError(f"Patch {patch_num}: 'old_text' must not be empty")
 
-        old_text = _normalize_line_endings(old_text)
-        new_text = _normalize_line_endings(new_text)
+        old_text = normalize_line_endings(old_text)
+        new_text = normalize_line_endings(new_text)
 
         count = content.count(old_text)
 

@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that enables Claude Code to interact with 
 
 ## Features
 
-This server provides 14 tools across three categories:
+This server provides 25 tools across five categories:
 
 **Project Operations**
 - List and retrieve project details (supports both numeric IDs and string identifiers)
@@ -13,13 +13,31 @@ This server provides 14 tools across three categories:
 
 **Issue Management**
 - Search, create, and update issues (tickets) - supports both numeric project IDs and string identifiers
-- Add comments and track progress
+- Add comments, edit existing comments (`update_issue_journal`, requires Redmine 5.0+), and track progress
+- Full or differential (find-and-replace) description updates
 - Create and delete relations between issues (dependencies, blockers, duplicates, etc.)
 - Support for filtering by project (numeric ID or identifier), tracker, status, assignee, and priority
+
+**Attachments**
+- Upload files and attach them to issues, download, update metadata (`update_attachment`, requires Redmine 3.4+), and delete
+
+**Wiki Pages**
+- List, read (including old versions), create/update (full or differential), and delete wiki pages
 
 **Metadata**
 - List trackers, statuses, priorities, and users
 - Essential for creating and updating issues correctly
+
+### Silent failure detection
+
+Redmine's REST API silently discards fields that workflow or permission rules
+do not allow (e.g. a status transition forbidden for your role) while still
+returning HTTP 200. This server verifies every `update_issue` call against the
+state Redmine actually persisted and raises an explicit error listing the
+discarded fields - including the allowed status transitions when the server
+reports them (Redmine 5.0+). `create_issue` instead returns a `warnings` field
+in such cases, because the issue itself was created and an error could lead to
+duplicate creation on retry.
 
 ## Installation
 
@@ -125,9 +143,12 @@ Claude will automatically use the appropriate tools to fulfill your requests. Pr
 
 Current version does not support:
 - Time tracking entries
-- File attachments upload
-- Wiki pages
 - Bulk operations
+
+Version-dependent features (limited by the Redmine REST API itself):
+- Editing existing comments requires Redmine 5.0+ (`update_issue_journal`)
+- Updating attachment metadata requires Redmine 3.4+ (`update_attachment`)
+- Issue relations cannot be updated (delete and re-create instead)
 
 These features may be added in future versions based on demand.
 
