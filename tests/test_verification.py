@@ -257,6 +257,12 @@ class TestFormatUpdateErrorMessage:
         assert "does not report allowed statuses" in message
         assert "Administration > Workflow" in message
 
+    def test_empty_allowed_statuses_means_no_transitions(self):
+        # [] means the server DID report: no transitions are allowed
+        message = format_update_error_message(self.UNAPPLIED_STATUS, [])
+        assert "No status transitions are allowed" in message
+        assert "does not report" not in message
+
     def test_no_status_hint_for_other_fields(self):
         unapplied = [{"field": "done_ratio", "requested": 80, "actual": 50}]
         message = format_update_error_message(unapplied)

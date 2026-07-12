@@ -232,7 +232,16 @@ def format_update_error_message(
                 for status in allowed_statuses
             )
             message += f" Allowed statuses for this issue: {statuses}."
+        elif allowed_statuses is not None:
+            # Present but empty: the workflow defines no transitions from
+            # the current status for the API user's role.
+            message += (
+                " No status transitions are allowed for the API user's role "
+                "from the issue's current status (check Administration > "
+                "Workflow)."
+            )
         else:
+            # Absent: Redmine < 5.0 silently ignores include=allowed_statuses.
             message += (
                 " (This Redmine server does not report allowed statuses; "
                 "check Administration > Workflow for allowed transitions.)"
